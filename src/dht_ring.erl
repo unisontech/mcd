@@ -97,7 +97,7 @@
   terminate/2
 ]).
 
--define(DEBUG(X, Y), io:format("DEBUG: " ++ X, Y)).
+-define(DEBUG(X, Y), error_logger:info_msg("DEBUG: " ++ X, Y)).
 
 -record(state, { ring, nodes }).
 

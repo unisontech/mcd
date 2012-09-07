@@ -12,5 +12,7 @@
                   stdlib
                  ]},
   {registered, []},
-  {env, [ ]}
+  {env, [ {peers, [["localhost"]]}]},
+	{mod, {mcd_app, []}}
+
  ]}.

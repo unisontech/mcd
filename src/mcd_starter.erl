@@ -27,31 +27,31 @@
 
 start_link(ClusterName, PeerAddresses) ->
     case supervisor:start_link(
-	{local, list_to_atom(atom_to_list(ClusterName) ++ ".sup")},
-	?MODULE, PeerAddresses) of
-      {ok, SupRef} ->
-	io:format("started mcd_cluster: ~p~n", [SupRef]),
-	Peers = [{Name, Pid, Weight} ||
-		{{Name, Weight}, Pid, worker, _}
-			<- supervisor:which_children(SupRef), is_pid(Pid) ],
-	{ok, _} = supervisor:start_child(SupRef, { mcd_cluster,
-		{ mcd_cluster, start_link, [ClusterName, Peers] },
-		permanent, 60000, worker, [mcd_cluster, dht_ring] }),
-	{ok, SupRef};
-      Error -> Error
+           {local, list_to_atom(atom_to_list(ClusterName) ++ ".sup")},
+           ?MODULE, PeerAddresses) of
+        {ok, SupRef} ->
+            error_logger:info_msg("started mcd_cluster: ~p~n", [SupRef]),
+            Peers = [{Name, Pid, Weight} ||
+                        {{Name, Weight}, Pid, worker, _}
+                            <- supervisor:which_children(SupRef), is_pid(Pid) ],
+            {ok, _} = supervisor:start_child(SupRef, { mcd_cluster,
+                                                       { mcd_cluster, start_link, [ClusterName, Peers] },
+                                                       permanent, 60000, worker, [mcd_cluster, dht_ring] }),
+            {ok, SupRef};
+        Error -> Error
     end.
 
 init(PeerAddresses) ->
     McdChildSpecs = [begin
-	{Address, Weight} = case Addr of
-		[_Host] -> {Addr, 10};
-		[_Host, _Port] -> {Addr, 10};
-		[Host, Port, Wght] -> {[Host, Port], Wght}
-	end,
-	NameTag = list_to_atom(lists:flatten(io_lib:format("~p", [Address]))),
-	{ { NameTag, Weight },
-	  { mcd, start_link, [Address] },
-	  permanent, 10000, worker, [mcd] }
-    end || [Host|_] = Addr <- PeerAddresses],
-    {ok, { {one_for_all, 10, 10}, McdChildSpecs }}.
+                         {Address, Weight} = case Addr of
+                                                 [_Host] -> {Addr, 10};
+                                                 [_Host, _Port] -> {Addr, 10};
+                                                 [Host, Port, Wght] -> {[Host, Port], Wght}
+                                             end,
+                         NameTag = list_to_atom(lists:flatten(io_lib:format("~p", [Address]))),
+                         { { NameTag, Weight },
+                           { mcd, start_link, [Address] },
+                           permanent, 10000, worker, [mcd] }
+                     end || [Host|_] = Addr <- PeerAddresses],
+    {ok, { {one_for_all, 1, 1}, McdChildSpecs }}.
 

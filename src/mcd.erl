@@ -37,6 +37,13 @@
 %%% 	mcd:set(Key, Data)
 %%% 	mcd:set(ServerRef, Key, Data)
 %%%
+%%%   mcd:incr(Key, Increment, DefaultValue)
+%%%   mcd:incr(ServerRef, Key, Increment, DefaultValue)
+%%%  Use Increment = 0 to get value or to set default if key does not exist.
+%%%
+%%%   mcd:decr(Key, Decrement)
+%%%   mcd:decr(ServerRef, Key, Decrement)
+%%%
 %%%  Generic API:
 %%% 	mcd:do(ServerRef, SimpleRequest)
 %%% 	mcd:do(ServerRef, KeyRequest, Key)
@@ -47,6 +54,9 @@
 %%%		KeyRequest = get | delete | {delete, Time}
 %%%		KeyDataRequest = Command | {Command, Flags, Expiration}
 %%%		Command = set | add | replace
+%%%   Increment = int()>=0
+%%%   Decrement = int()>=0
+%%%   DefaultValue = int()>=0
 %%%
 %%% Client may also use gen_server IPC primitives to request this module to
 %%% perform storage and retrieval. Primitives are described in gen_server(3),
@@ -84,8 +94,12 @@
 
 -export([start_link/0, start_link/1, start_link/2]).
 -export([do/2, do/3, do/4]).
+
 -export([ldo/1, ldo/2, ldo/3, ldo/5]).	%% do('localmcd', ...)
 -export([get/1, get/2, set/2, set/3, set/5, async_set/3, async_set/5]).
+-export([set_raw_integer/2, set_raw_integer/3, get_raw_integer/1, get_raw_integer/2]).
+-export([incr/2, incr/3, decr/2, decr/3]).
+-export([flush/0, flush/1]).
 -export([monitor/3]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -161,6 +175,26 @@ get(ServerRef, Key) -> do(ServerRef, get, Key).
 set(Key, Data) -> do(?LOCALMCDNAME, set, Key, Data).
 set(ServerRef, Key, Data) -> do(ServerRef, set, Key, Data).
 set(ServerRef, Key, Data, Flags, Expiration) when is_integer(Flags), is_integer(Expiration), Flags >= 0, Flags < 65536, Expiration >= 0 -> do(ServerRef, {set, Flags, Expiration}, Key, Data).
+
+set_raw_integer(Key, Value)->set_raw_integer(?LOCALMCDNAME, Key, Value).
+set_raw_integer(ServerRef, Key, Value)when is_integer(Value), Value >= 0 ->
+    do(ServerRef, {set_raw_integer, Key, Value}).
+
+get_raw_integer(Key)->get_raw_integer(?LOCALMCDNAME, Key).
+get_raw_integer(ServerRef, Key)->
+    do(ServerRef, {incr, Key, 0}).
+
+incr(Key, Value)->incr(?LOCALMCDNAME, Key, Value).
+incr(ServerRef, Key, Value) when is_integer(Value), Value >=0 ->
+    do(ServerRef, {incr, Key, Value}).
+
+decr(Key, Value)->decr(?LOCALMCDNAME, Key, Value).
+decr(ServerRef, Key, Value)->    
+    do(ServerRef, {decr, Key, Value}).
+
+flush()->flush(?LOCALMCDNAME).
+flush(ServerRef)->
+    do(ServerRef, {flush_all}).    
 
 async_set(ServerRef, Key, Data) ->
 	do_forwarder(cast, ServerRef, {set, Key, Data}),
@@ -296,7 +330,7 @@ handle_info({'DOWN', MonRef, process, Pid, _Info}, #state{monitored_by=Mons}=Sta
 		monitored_by = removeMonitorPidAndMonRef(Mons, Pid, MonRef)
 		} };
 handle_info(_Info, State) ->
-	io:format("Some info: ~p~n", [_Info]),
+	error_logger:info_msg("Some info: ~p~n", [_Info]),
 	{noreply, State}.
 
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
@@ -482,9 +516,14 @@ do_forwarder(Method, ServerRef, Req) ->
 		% into to an Erlang term. It's better to do it in the requester
 		% process space to avoid inter-process copying of potentially
 		% complex data structures.
-		{ok, {'$value_blob', B}} -> {ok, binary_to_term(B)};
-
-		Response -> Response
+		{ok, {'$value_blob', B}} -> 
+          try
+               {ok, binary_to_term(B)}
+          catch
+               _E:_R ->
+                   {error, "response is not erlang term"}
+          end;
+      Response -> Response
 	end.
 
 %% Convert arbitrary Erlang term into memcached key
@@ -521,6 +560,12 @@ constructMemcachedQuery({delete, Key, Time}) when is_integer(Time), Time > 0 ->
 constructMemcachedQuery({delete, Key}) ->
 	MD5Key = md5(Key),
 	{MD5Key, ["delete ", b64(MD5Key), "\r\n"], rtDel};
+constructMemcachedQuery({set_raw_integer, Key, Value})
+    when is_integer(Value), Value >= 0 ->
+  MD5Key = md5(Key),
+  Raw = integer_to_list(Value),
+  {MD5Key, ["set ", b64(MD5Key), " 0 0 ", integer_to_list(length(Raw)), "\r\n", 
+            Raw , "\r\n"], rtCmd};
 constructMemcachedQuery({incr, Key, Value})
 		when is_integer(Value), Value >= 0 ->
 	MD5Key = md5(Key),
