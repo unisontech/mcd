@@ -627,7 +627,7 @@ data_receiver_loop(Parent, ParentMon, Socket) ->
 	data_receiver_loop(Parent, ParentMon, NewSocket).
 
 data_receiver_accept_response(rtVer, _, Socket) ->
-	["VERSION", Value] = data_receive_string_tokens(Socket),
+	["VERSION", Value | _] = data_receive_string_tokens(Socket),
 	{ok, Value};
 data_receiver_accept_response(rtGet, ExpFlags, Socket) ->
 	{ok, HeaderLine} = gen_tcp:recv(Socket, 0),
